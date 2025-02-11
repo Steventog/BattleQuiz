@@ -1,0 +1,70 @@
+Projet:
+Je veux créer un jeu multijoueur (max 4) en ligne, le concept est un mélange de quiz, saisie rapide, compétition, battle
+
+Gameplay:
+Au début de la partie, tous les joueurs sont au même niveau tout en bas avec leur personnages, après un décompte de 5s, un même quiz (simple avec 4 propositions) apparaît simultanément pour tous les joueurs, le but c'est de saisir la réponse au plus vite pour passer au point suivant, et au point suivant un autre quiz apparait et etc jusqu'au dernier point pour gagner la partie.
+
+Logique:
+Pour chaque partie, on doit générer un qcm (de 20 niveaux) qui sera le même pour tous les joueurs, mais qui en fonction de leur réponses et vitesse de frappe passerons vite les quiz pour arrivé au dernier niveau.
+
+Les bonus:
+Quand un joueur atteint le 5ième, 10ième, et 15ième niveau, il aura droit à des bonus qu'il pourra utiliser soit pour ce protéger (annuler le prochain attaque), ou attaquer un autre joueur.
+
+les attaques:
+Les attaques consistent à ajouter un qcm dans le niveau où se trouve l'adversaire (si il est au niveau 12, au lieu de répondre juste à 1 qcm pour passer, il devra en résoudre 2, bien ce effet est cumulable: c'est à dire que les 3 autres joueurs peuvent attaquer un seul joueur)
+
+le multijoueur:
+Les joueurs saisissent leur pseudo, sélectionne un personnage (une mascote ou icone qui sera son personnage dans le jeu), et ils peuvent créer une partie ou rejoindre une partie existante.
+- Quand un créer une partie, il choisit le nombre de joueurs (min: 2, max: 4) et puis un il attend dans le lobby (En ce moment, on affichera "1/4 joueur", en dessous "Les noms des joueurs", en dessous, "id de la partie", en dessous "deux boutons: rejoindre la partie et créer la partie"(sachant que s'il n y a pas le nombre min de joueurs dans le lobby, le bouton créer la partie est grisé), et si le créateur de la partie est satisfait, il peut lancer la partie.)
+- Quand un joueur rejoins une partie (En saisissant l'id de la partie), il est ajouté au lobby, et il peut voir les joueurs (noms, nombre)
+- Quand un joueur quitte le lobby, on met a jour le nombre de joueurs.
+- Quand le créateur de la partie appuie sur le bouton "lancer la partie", la partie commence et les joueurs sont diriger vers la page du jeu.
+- Quand le créateur de la partie quitte le lobby, la partie est annulée, et les autres joueurs sont kick du lobby.
+
+Le jeu:
+- Le jeu est composé de 20 niveaux, chaque niveau est composé d'un quiz
+- Chaque quiz est composé de 4 propositions.
+- Le joueur doit saisir la bonne réponse le plus vite possible.
+- Le joueur peut utiliser un bonus pour annuler le prochain quiz ou attaquer un autre joueur en ajoutant un quiz supplémentaire (choisie aléatoirement) à son niveau actuel
+- Quand le créateur du jeu lance la partie, il choisit le niveau du jeu (facile, intermédiaire, difficile), et en arrière plan, une série de 20 quiz est selectionner dans la base de données (en fonction du niveau choisi) aléatoirement.
+- La série de quiz est la même pour tous les joueurs.
+
+Le visuel du joueur:
+
+    +--------------------------+
+    |      |           |       |
+    |      |           |       |
+    |      +-----------+       |
+    |      |           |       |
+    |      |           |       |
+    |      |           |       |
+    |      +-----------+       |
+    |      |           |       |
+    |      |           |       |
+    |      |           |       |
+    |      +-----------+       |
+    |      |           |       |
+    |      |     O     |       |
+    |      |           |       |
+    |      +-----------+       |
+    |                          |
+    +--------------------------+
+
+- A la place du "O" on affichera le personnage du joueur.
+- Le personnage commencera en bas dans une case.
+- Chaque fois que le joueur passe à un niveau, il monte d'une case.
+- Il y a 20 cases au total (une pour chaque niveau).
+- Le personnage est affiché dans la case correspondant au niveau actuel du joueur.
+- Le personnage peut être animé (par exemple, il peut faire un petit saut quand il monte d'une case)
+- A chaque case le qcm est affiché en mode popup (Question, les 4 réponses, un texbox pour saisir la bonne reponse).
+- En saisissant le réponse, quand il rate la saisie (par exemple au lieu de m, il saisie n, le texte se secoue en rouge).
+
+Autres:
+- il y a d'autres détails mais qui ne sont pas dans ce petit document.
+
+Structure:
+- Tout ce qui sera dans le serveur est dans le dossier "server"(est déjà créer).
+- Tout ce qui sera dans le client est dans le dossier "client"(est déjà créer).
+
+Besoin:
+je veux faire ce projet avec vue js, node express et socket.io, mongodb
