@@ -3,76 +3,145 @@ const http = require('http');
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const { v4: uuidv4 } = require('uuid');
+const Game = require('./models/Game');
+const { EasyQuestion, MediumQuestion, HardQuestion } = require('./models/Question');
 require('dotenv').config();
 
-const gameRoutes = require('./routes/game');
-const Game = require('./models/Game');
-
 const app = express();
+app.use(cors());
+
 const server = http.createServer(app);
+
+// Configuration de Socket.IO avec gestion des CORS
 const io = new Server(server, {
   cors: {
     origin: "http://localhost:8080",
-    methods: ["GET", "POST"]
-  }
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Map pour suivre les connexions socket <-> playerId
+const playerConnections = new Map();
 
-// Routes API
-app.use('/api', gameRoutes);
+// Connexion à MongoDB
+mongoose.connect(process.env.MONGODB_URI)
+.then(() => {
+  console.log('=== Démarrage du serveur ===');
+  console.log('Tentative de connexion à MongoDB...');
+  console.log('Connecté à MongoDB avec succès');
+  console.log('Base de données: BattleQuiz');
+})
+.catch((err) => {
+  console.error('Erreur de connexion à MongoDB:', err);
+  process.exit(1);
+});
 
-// MongoDB connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/BattleQuiz')
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('Could not connect to MongoDB:', err));
+// Fonction pour obtenir le modèle de questions en fonction de la difficulté
+async function getRandomQuestions(difficulty, count = 20) {
+  console.log('=== Début de getRandomQuestions ===');
+  console.log('Difficulté demandée:', difficulty);
+  console.log('Nombre de questions demandées:', count);
 
-// Socket.IO connection handling
+  let QuestionModel;
+  switch (difficulty.toLowerCase()) {
+    case 'facile':
+      QuestionModel = EasyQuestion;
+      break;
+    case 'intermédiaire':
+      QuestionModel = MediumQuestion;
+      break;
+    case 'difficile':
+      QuestionModel = HardQuestion;
+      break;
+    default:
+      throw new Error('Difficulté invalide');
+  }
+
+  try {
+    const totalQuestions = await QuestionModel.countDocuments();
+    console.log('Nombre total de questions disponibles:', totalQuestions);
+
+    const questions = await QuestionModel.aggregate([
+      { $sample: { size: Math.min(count, totalQuestions) } }
+    ]);
+
+    console.log('Nombre de questions récupérées:', questions.length);
+    if (questions.length > 0) {
+      console.log('Exemple de question:', {
+        question: questions[0].question,
+        choix1: questions[0].choix1,
+        choix2: questions[0].choix2,
+        choix3: questions[0].choix3,
+        choix4: questions[0].choix4,
+        reponse: questions[0].reponse
+      });
+    }
+
+    return questions;
+  } catch (error) {
+    console.error('Erreur lors de la récupération des questions:', error);
+    throw error;
+  }
+}
+
+// Fonction pour obtenir la prochaine question
+async function getNextQuestion(game) {
+  const currentQuestionIndex = game.questions.findIndex(q => q._id.toString() === game.currentQuestion._id.toString());
+  if (currentQuestionIndex === -1) {
+    throw new Error('Question actuelle non trouvée');
+  }
+
+  const nextQuestionIndex = currentQuestionIndex + 1;
+  if (nextQuestionIndex >= game.questions.length) {
+    throw new Error('Pas de question suivante');
+  }
+
+  return game.questions[nextQuestionIndex];
+}
+
+// Gestion des connexions socket
 io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
+  console.log('Nouveau client connecté:', socket.id);
 
-  // Créer une partie
+  // Créer une nouvelle partie
   socket.on('createGame', async (data) => {
     try {
-      const { username, maxPlayers, difficulty } = data;
-      const gameId = Math.random().toString(36).substring(2, 8).toUpperCase();
+      console.log('Création de partie demandée:', data);
       
-      const game = new Game({
+      const gameId = uuidv4().substring(0, 6).toUpperCase();
+      const game = await Game.create({
         gameId,
-        maxPlayers,
-        difficulty,
         createdBy: socket.id,
+        maxPlayers: data.maxPlayers,
+        difficulty: data.difficulty,
         players: [{
           playerId: socket.id,
-          username,
-          character: '😊', // Character par défaut
-          currentLevel: 0
+          username: data.username,
+          score: 0
         }]
       });
 
-      await game.save();
       socket.join(gameId);
       io.to(gameId).emit('gameCreated', game);
+      console.log('Partie créée:', game);
     } catch (error) {
-      socket.emit('error', error.message);
+      console.error('Erreur création partie:', error);
+      socket.emit('error', 'Erreur lors de la création de la partie');
     }
   });
 
   // Rejoindre une partie
   socket.on('joinGame', async (data) => {
     try {
-      const { gameId, username } = data;
-      const game = await Game.findOne({ gameId });
-
+      console.log('Demande pour rejoindre la partie:', data);
+      
+      const game = await Game.findOne({ gameId: data.gameId });
       if (!game) {
         socket.emit('error', 'Partie non trouvée');
-        return;
-      }
-
-      if (game.status !== 'waiting') {
-        socket.emit('error', 'La partie a déjà commencé');
         return;
       }
 
@@ -81,51 +150,31 @@ io.on('connection', (socket) => {
         return;
       }
 
-      game.players.push({
+      const player = {
         playerId: socket.id,
-        username,
-        character: '😊', // Character par défaut
-        currentLevel: 0
-      });
+        username: data.username,
+        score: 0
+      };
 
+      game.players.push(player);
       await game.save();
-      socket.join(gameId);
-      io.to(gameId).emit('playerJoined', game);
+
+      socket.join(game.gameId);
+      io.to(game.gameId).emit('playerJoined', game);
+      
+      console.log('Joueur rejoint:', player);
     } catch (error) {
-      socket.emit('error', error.message);
-    }
-  });
-
-  // Quitter le lobby
-  socket.on('leaveLobby', async (data) => {
-    try {
-      const { gameId, playerId } = data;
-      const game = await Game.findOne({ gameId });
-
-      if (!game) return;
-
-      if (game.createdBy === playerId) {
-        // Si le créateur quitte, on annule la partie
-        await Game.deleteOne({ gameId });
-        io.to(gameId).emit('gameCancelled');
-      } else {
-        // Sinon on retire juste le joueur
-        game.players = game.players.filter(p => p.playerId !== playerId);
-        await game.save();
-        io.to(gameId).emit('playerLeft', game);
-      }
-
-      socket.leave(gameId);
-    } catch (error) {
-      socket.emit('error', error.message);
+      console.error('Erreur joinGame:', error);
+      socket.emit('error', 'Erreur lors de la connexion à la partie');
     }
   });
 
   // Démarrer la partie
   socket.on('startGame', async (gameId) => {
     try {
+      console.log('Démarrage de partie demandé:', gameId);
+      
       const game = await Game.findOne({ gameId });
-
       if (!game) {
         socket.emit('error', 'Partie non trouvée');
         return;
@@ -141,42 +190,145 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Charger les questions
+      const questions = await getRandomQuestions(game.difficulty);
+      if (!questions || questions.length === 0) {
+        socket.emit('error', 'Aucune question trouvée pour cette difficulté');
+        return;
+      }
+
+      game.questions = questions;
+      game.currentQuestionIndex = 0;
       game.status = 'playing';
       await game.save();
-      io.to(gameId).emit('gameStarted', game);
+
+      io.to(game.gameId).emit('gameStarting', game);
+
+      // Démarrer le compte à rebours
+      let count = 3;
+      const countdownInterval = setInterval(() => {
+        if (count >= 0) {
+          io.to(game.gameId).emit('countdown', count);
+          count--;
+        } else {
+          clearInterval(countdownInterval);
+          io.to(game.gameId).emit('gameState', {
+            players: game.players,
+            currentQuestion: questions[0]
+          });
+        }
+      }, 1000);
+
     } catch (error) {
-      socket.emit('error', error.message);
+      console.error('Erreur startGame:', error);
+      socket.emit('error', 'Erreur lors du démarrage de la partie');
     }
   });
 
-  // Gérer la déconnexion
-  socket.on('disconnect', async () => {
-    console.log('User disconnected:', socket.id);
+  // Rejoindre une room de jeu
+  socket.on('joinGameRoom', async (data) => {
     try {
-      // Rechercher toutes les parties où le joueur est présent
-      const games = await Game.find({
-        'players.playerId': socket.id
-      });
+      console.log('Rejoindre game room:', data);
+      
+      const game = await Game.findOne({ gameId: data.gameId });
+      if (!game) {
+        socket.emit('error', 'Partie non trouvée');
+        return;
+      }
 
-      for (const game of games) {
-        if (game.createdBy === socket.id) {
-          // Si c'était le créateur, annuler la partie
-          await Game.deleteOne({ gameId: game.gameId });
-          io.to(game.gameId).emit('gameCancelled');
+      const player = game.players.find(p => p.playerId === data.playerId);
+      if (!player) {
+        socket.emit('error', 'Joueur non trouvé dans la partie');
+        return;
+      }
+
+      socket.join(data.gameId);
+      
+      io.to(data.gameId).emit('gameState', {
+        players: game.players,
+        currentQuestion: game.questions[game.currentQuestionIndex]
+      });
+    } catch (error) {
+      console.error('Erreur joinGameRoom:', error);
+      socket.emit('error', 'Erreur lors de la connexion à la room');
+    }
+  });
+
+  // Soumettre une réponse
+  socket.on('submitAnswer', async (data) => {
+    try {
+      console.log('Réponse soumise:', data);
+      
+      const game = await Game.findOne({ gameId: data.gameId });
+      if (!game) {
+        socket.emit('error', 'Partie non trouvée');
+        return;
+      }
+
+      const currentQuestion = game.questions[game.currentQuestionIndex];
+      const player = game.players.find(p => p.playerId === data.playerId);
+      
+      if (!player) {
+        socket.emit('error', 'Joueur non trouvé');
+        return;
+      }
+
+      const isCorrect = data.answer === currentQuestion.reponse;
+      
+      if (isCorrect) {
+        player.score += 10;
+        game.currentQuestionIndex++;
+        await game.save();
+
+        if (game.currentQuestionIndex >= game.questions.length) {
+          // Fin de la partie
+          const winner = game.players.reduce((prev, current) => {
+            return (prev.score > current.score) ? prev : current;
+          });
+
+          io.to(game.gameId).emit('gameOver', { winner });
         } else {
-          // Sinon retirer le joueur
-          game.players = game.players.filter(p => p.playerId !== socket.id);
-          await game.save();
-          io.to(game.gameId).emit('playerLeft', game);
+          // Question suivante
+          io.to(game.gameId).emit('correctAnswer', {
+            players: game.players,
+            nextQuestion: game.questions[game.currentQuestionIndex]
+          });
         }
+      } else {
+        socket.emit('wrongAnswer');
       }
     } catch (error) {
-      console.error('Error handling disconnection:', error);
+      console.error('Erreur submitAnswer:', error);
+      socket.emit('error', 'Erreur lors de la soumission de la réponse');
     }
+  });
+
+  // Quitter le lobby
+  socket.on('leaveLobby', async (data) => {
+    try {
+      console.log('Quitter le lobby:', data);
+      
+      const game = await Game.findOne({ gameId: data.gameId });
+      if (!game) return;
+
+      game.players = game.players.filter(p => p.playerId !== data.playerId);
+      await game.save();
+
+      socket.leave(data.gameId);
+      io.to(data.gameId).emit('playerJoined', game);
+    } catch (error) {
+      console.error('Erreur leaveLobby:', error);
+    }
+  });
+
+  // Déconnexion
+  socket.on('disconnect', () => {
+    console.log('Client déconnecté:', socket.id);
   });
 });
 
+// Démarrage du serveur
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log('Serveur démarré sur le port', PORT);
 });

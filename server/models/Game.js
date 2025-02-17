@@ -1,19 +1,17 @@
 const mongoose = require('mongoose');
 
 const playerSchema = new mongoose.Schema({
-  playerId: String,
-  username: String,
-  character: String,
-  currentLevel: {
+  playerId: {
+    type: String,
+    required: true
+  },
+  username: {
+    type: String,
+    required: true
+  },
+  score: {
     type: Number,
     default: 0
-  },
-  bonuses: {
-    type: [{
-      type: String,
-      enum: ['shield', 'attack']
-    }],
-    default: []
   }
 });
 
@@ -22,11 +20,6 @@ const gameSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true
-  },
-  status: {
-    type: String,
-    enum: ['waiting', 'playing', 'finished'],
-    default: 'waiting'
   },
   createdBy: {
     type: String,
@@ -38,20 +31,49 @@ const gameSchema = new mongoose.Schema({
     min: 2,
     max: 4
   },
-  players: [playerSchema],
-  questions: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Question'
-  }],
   difficulty: {
     type: String,
-    enum: ['facile', 'intermédiaire', 'difficile'],
-    required: true
+    required: true,
+    enum: ['facile', 'intermédiaire', 'difficile']
   },
-  createdAt: {
-    type: Date,
-    default: Date.now
+  status: {
+    type: String,
+    enum: ['waiting', 'playing', 'finished'],
+    default: 'waiting'
+  },
+  players: [playerSchema],
+  questions: [{
+    type: mongoose.Schema.Types.Mixed
+  }],
+  currentQuestionIndex: {
+    type: Number,
+    default: 0
   }
+}, {
+  timestamps: true
 });
 
-module.exports = mongoose.model('Game', gameSchema);
+// Méthode pour mettre à jour le jeu de manière sûre
+gameSchema.statics.findAndModify = async function(gameId, update) {
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      const game = await this.findOne({ gameId });
+      if (!game) return null;
+
+      Object.assign(game, update);
+      await game.save();
+      return game;
+    } catch (error) {
+      if (error.name === 'VersionError' && retries > 1) {
+        retries--;
+        continue;
+      }
+      throw error;
+    }
+  }
+};
+
+const Game = mongoose.model('Game', gameSchema);
+
+module.exports = Game;

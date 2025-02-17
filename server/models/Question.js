@@ -1,31 +1,43 @@
 const mongoose = require('mongoose');
 
 const questionSchema = new mongoose.Schema({
+  _id: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  },
   question: {
     type: String,
     required: true
   },
-  options: {
-    type: [String],
-    required: true,
-    validate: [
-      array => array.length === 4,
-      'Les questions doivent avoir exactement 4 options'
-    ]
-  },
-  correctAnswer: {
+  choix1: {
     type: String,
     required: true
   },
-  difficulty: {
+  choix2: {
     type: String,
-    enum: ['facile', 'intermédiaire', 'difficile'],
     required: true
   },
-  category: {
+  choix3: {
+    type: String,
+    required: true
+  },
+  choix4: {
+    type: String,
+    required: true
+  },
+  reponse: {
     type: String,
     required: true
   }
-});
+}, { collection: 'easy' }); // Spécifier explicitement le nom de la collection
 
-module.exports = mongoose.model('Question', questionSchema);
+// Créer les modèles en pointant vers les collections existantes
+const EasyQuestion = mongoose.model('EasyQuestion', questionSchema, 'easy');
+const MediumQuestion = mongoose.model('MediumQuestion', questionSchema, 'medium');
+const HardQuestion = mongoose.model('HardQuestion', questionSchema, 'hard');
+
+module.exports = {
+  EasyQuestion,
+  MediumQuestion,
+  HardQuestion
+};
