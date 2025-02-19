@@ -121,7 +121,8 @@ io.on('connection', (socket) => {
         players: [{
           playerId: socket.id,
           username: data.username,
-          score: 0
+          score: 0,
+          currentQuestionIndex: 0
         }]
       });
 
@@ -153,7 +154,8 @@ io.on('connection', (socket) => {
       const player = {
         playerId: socket.id,
         username: data.username,
-        score: 0
+        score: 0,
+        currentQuestionIndex: 0
       };
 
       game.players.push(player);
@@ -198,7 +200,6 @@ io.on('connection', (socket) => {
       }
 
       game.questions = questions;
-      game.currentQuestionIndex = 0;
       game.status = 'playing';
       await game.save();
 
@@ -246,7 +247,7 @@ io.on('connection', (socket) => {
       
       io.to(data.gameId).emit('gameState', {
         players: game.players,
-        currentQuestion: game.questions[game.currentQuestionIndex]
+        currentQuestion: game.questions[player.currentQuestionIndex || 0]
       });
     } catch (error) {
       console.error('Erreur joinGameRoom:', error);
@@ -265,35 +266,60 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const currentQuestion = game.questions[game.currentQuestionIndex];
       const player = game.players.find(p => p.playerId === data.playerId);
-      
       if (!player) {
         socket.emit('error', 'Joueur non trouvé');
         return;
       }
 
-      const isCorrect = data.answer === currentQuestion.reponse;
+      const currentQuestion = game.questions[player.currentQuestionIndex];
+      if (!currentQuestion) {
+        socket.emit('error', 'Question non trouvée');
+        return;
+      }
+
+      // Nettoyage des réponses - suppression des guillemets et des espaces
+      const cleanAnswer = data.answer.trim().replace(/^"|"$/g, '');
+      const cleanExpectedAnswer = currentQuestion.reponse.trim().replace(/^"|"$/g, '');
+      
+      console.log('Détails de la question:', {
+        questionIndex: player.currentQuestionIndex,
+        question: currentQuestion.question,
+        reponseAttendue: currentQuestion.reponse,
+        reponseNettoyeeAttendue: cleanExpectedAnswer,
+        reponseRecue: data.answer,
+        reponseNettoyeeRecue: cleanAnswer
+      });
+      
+      const isCorrect = cleanAnswer === cleanExpectedAnswer;
       
       if (isCorrect) {
+        // Mettre à jour le score et l'index de question du joueur
         player.score += 10;
-        game.currentQuestionIndex++;
+        player.currentQuestionIndex += 1;
+        
+        // Vérifier si le joueur a gagné
+        if (player.currentQuestionIndex >= game.questions.length) {
+          await game.save();
+          io.to(game.gameId).emit('gameOver', { winner: player });
+          return;
+        }
+
+        // Sauvegarder les changements
         await game.save();
 
-        if (game.currentQuestionIndex >= game.questions.length) {
-          // Fin de la partie
-          const winner = game.players.reduce((prev, current) => {
-            return (prev.score > current.score) ? prev : current;
-          });
+        // Envoyer la prochaine question au joueur
+        socket.emit('correctAnswer', {
+          players: game.players,
+          nextQuestion: game.questions[player.currentQuestionIndex]
+        });
 
-          io.to(game.gameId).emit('gameOver', { winner });
-        } else {
-          // Question suivante
-          io.to(game.gameId).emit('correctAnswer', {
-            players: game.players,
-            nextQuestion: game.questions[game.currentQuestionIndex]
-          });
-        }
+        // Informer les autres joueurs de la progression
+        socket.to(game.gameId).emit('playerProgressUpdate', {
+          playerId: player.playerId,
+          score: player.score,
+          currentQuestionIndex: player.currentQuestionIndex
+        });
       } else {
         socket.emit('wrongAnswer');
       }

@@ -12,6 +12,37 @@ const playerSchema = new mongoose.Schema({
   score: {
     type: Number,
     default: 0
+  },
+  currentQuestionIndex: {
+    type: Number,
+    default: 0
+  }
+});
+
+const questionSchema = new mongoose.Schema({
+  question: {
+    type: String,
+    required: true
+  },
+  choix1: {
+    type: String,
+    required: true
+  },
+  choix2: {
+    type: String,
+    required: true
+  },
+  choix3: {
+    type: String,
+    required: true
+  },
+  choix4: {
+    type: String,
+    required: true
+  },
+  reponse: {
+    type: String,
+    required: true
   }
 });
 
@@ -42,13 +73,7 @@ const gameSchema = new mongoose.Schema({
     default: 'waiting'
   },
   players: [playerSchema],
-  questions: [{
-    type: mongoose.Schema.Types.Mixed
-  }],
-  currentQuestionIndex: {
-    type: Number,
-    default: 0
-  }
+  questions: [questionSchema]
 }, {
   timestamps: true
 });
